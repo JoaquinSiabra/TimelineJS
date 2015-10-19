@@ -1,4 +1,5 @@
-/* 	TimeNav
+/* 	VMM.Timeline.TimeNav.js
+    TimeNav
 	This class handles the bottom timeline navigation.
 	It requires the VMM.Util class and VMM.Date class
 ================================================== */
@@ -259,10 +260,25 @@ if(typeof VMM.Timeline != 'undefined' && typeof VMM.Timeline.TimeNav == 'undefin
 			if (e.originalEvent) {
 				e = e.originalEvent;
 			}
+			
+			// Browsers unable to differntiate between up/down and left/right scrolling
+			/*
 			if (e.wheelDelta) {
 				delta = e.wheelDelta/6;
 			} else if (e.detail) {
 				delta = -e.detail*12;
+			}
+			*/
+			
+			// Webkit and browsers able to differntiate between up/down and left/right scrolling
+			if (typeof e.wheelDeltaX != 'undefined' ) {
+				delta = e.wheelDeltaY/6;
+				if (Math.abs(e.wheelDeltaX) > Math.abs(e.wheelDeltaY)) {
+					delta = e.wheelDeltaX/6;
+				} else {
+					//delta = e.wheelDeltaY/6;
+					delta = 0;
+				}
 			}
 			if (delta) {
 				if (e.preventDefault) {
@@ -270,16 +286,6 @@ if(typeof VMM.Timeline != 'undefined' && typeof VMM.Timeline.TimeNav == 'undefin
 				}
 				e.returnValue = false;
 			}
-			// Webkit
-			if (typeof e.wheelDeltaX != 'undefined' ) {
-				delta = e.wheelDeltaY/6;
-				if (Math.abs(e.wheelDeltaX) > Math.abs(e.wheelDeltaY)) {
-					delta = e.wheelDeltaX/6;
-				} else {
-					delta = e.wheelDeltaY/6;
-				}
-			}
-			
 			// Stop from scrolling too far
 			scroll_to = VMM.Lib.position($timenav).left + delta;
 			
@@ -810,7 +816,7 @@ if(typeof VMM.Timeline != 'undefined' && typeof VMM.Timeline.TimeNav == 'undefin
 				pos_cache_obj.row = row;
 				pos_cache_array.push(pos_cache_obj);
 				if (pos_cache_array.length > pos_cache_max) {
-					pos_cache_array.remove(0);
+					VMM.Util.removeRange(pos_cache_array,0);
 				}
 				
 				//if (is_animated && is_in_view) {
@@ -1275,7 +1281,7 @@ if(typeof VMM.Timeline != 'undefined' && typeof VMM.Timeline.TimeNav == 'undefin
 				$backhome = VMM.appendAndGetElement($toolbar, "<div>", "back-home", "<div class='icon'></div>");
 				VMM.bindEvent(".back-home", onBackHome, "click");
 				VMM.Lib.attribute($backhome, "title", VMM.master_config.language.messages.return_to_title);
-				VMM.Lib.attribute($backhome, "rel", "tooltip");
+				VMM.Lib.attribute($backhome, "rel", "timeline-tooltip");
 				
 			}
 			
@@ -1301,10 +1307,10 @@ if(typeof VMM.Timeline != 'undefined' && typeof VMM.Timeline.TimeNav == 'undefin
 				VMM.bindEvent($zoomout, onZoomOut, "click");
 				// TOOLTIP
 				VMM.Lib.attribute($zoomin, "title", VMM.master_config.language.messages.expand_timeline);
-				VMM.Lib.attribute($zoomin, "rel", "tooltip");
+				VMM.Lib.attribute($zoomin, "rel", "timeline-tooltip");
 				VMM.Lib.attribute($zoomout, "title", VMM.master_config.language.messages.contract_timeline);
-				VMM.Lib.attribute($zoomout, "rel", "tooltip");
-				$toolbar.tooltip({selector: "div[rel=tooltip]", placement: "right"});
+				VMM.Lib.attribute($zoomout, "rel", "timeline-tooltip");
+				$toolbar.tooltip({selector: "div[rel=timeline-tooltip]", placement: "right"});
 				
 				
 				// MOUSE EVENTS
@@ -1344,7 +1350,7 @@ if(typeof VMM.Timeline != 'undefined' && typeof VMM.Timeline.TimeNav == 'undefin
 			calculateInterval();
 
 			/* DETERMINE DEFAULT INTERVAL TYPE
-				millenium, ages, epoch, era and eon are not working yet
+				millenium, ages, epoch, era and eon are not optimized yet. They may never be.
 			================================================== */
 			/*
 			if (timespan.eons				>		data.length / config.nav.density) {
@@ -1539,6 +1545,9 @@ if(typeof VMM.Timeline != 'undefined' && typeof VMM.Timeline.TimeNav == 'undefin
 			
 			// CREATE TAGS
 			tags = VMM.Util.deDupeArray(tags);
+
+			config.tagSortFunction(tags);
+
 			if (tags.length > 3) {
 				config.nav.rows.current = config.nav.rows.half;
 			} else {

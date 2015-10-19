@@ -1,4 +1,5 @@
-/*	TIMELINE SOURCE DATA PROCESSOR
+/*	VMM.Timeline.DataObj.js
+    TIMELINE SOURCE DATA PROCESSOR
 ================================================== */
 
 if (typeof VMM.Timeline !== 'undefined' && typeof VMM.Timeline.DataObj == 'undefined') {
@@ -170,13 +171,26 @@ if (typeof VMM.Timeline !== 'undefined' && typeof VMM.Timeline.DataObj == 'undef
 		model: {
 			
 			googlespreadsheet: {
-				
+				extractSpreadsheetKey: function(url) {
+					var key	= VMM.Util.getUrlVars(url)["key"];
+					if (!key) {
+						if (url.match("docs.google.com/spreadsheets/d/")) {
+							var pos = url.indexOf("docs.google.com/spreadsheets/d/") + "docs.google.com/spreadsheets/d/".length;
+							var tail = url.substr(pos);
+							key = tail.split('/')[0]
+						}
+					}
+					if (!key) { key = url}
+					return key;
+				},
 				getData: function(raw) {
 					var getjsondata, key, worksheet, url, timeout, tries = 0;
 					
-					key	= VMM.Util.getUrlVars(raw)["key"];
+					// new Google Docs URLs can specify 'key' differently. 
+					// that format doesn't seem to have a way to specify a worksheet.
+					key	= VMM.Timeline.DataObj.model.googlespreadsheet.extractSpreadsheetKey(raw);
 					worksheet = VMM.Util.getUrlVars(raw)["worksheet"];
-					if (typeof worksheet == "undefined") worksheet = "od6";
+					if (typeof worksheet == "undefined") worksheet = "1";
 					
 					url	= "https://spreadsheets.google.com/feeds/list/" + key + "/" + worksheet + "/public/values?alt=json";
 					
@@ -199,6 +213,11 @@ if (typeof VMM.Timeline !== 'undefined' && typeof VMM.Timeline.DataObj == 'undef
 							VMM.Timeline.DataObj.model.googlespreadsheet.buildData(d);
 						})
 							.error(function(jqXHR, textStatus, errorThrown) {
+								if (jqXHR.status == 400) {
+									VMM.fireEvent(global, VMM.Timeline.Config.events.messege, "Error reading Google spreadsheet. Check the URL and make sure it's published to the web.");
+									clearTimeout(timeout);
+									return;
+								}
 								trace("Google Docs ERROR");
 								trace("Google Docs ERROR: " + textStatus + " " + jqXHR.responseText);
 							})
@@ -215,7 +234,7 @@ if (typeof VMM.Timeline !== 'undefined' && typeof VMM.Timeline.DataObj == 'undef
 						is_valid	= false;
 					
 					VMM.fireEvent(global, VMM.Timeline.Config.events.messege, "Parsing Google Doc Data");
-					
+
 					function getGVar(v) {
 						if (typeof v != 'undefined') {
 							return v.$t;
@@ -223,13 +242,20 @@ if (typeof VMM.Timeline !== 'undefined' && typeof VMM.Timeline.DataObj == 'undef
 							return "";
 						}
 					}
-					if (typeof d.feed.entry != 'undefined') {
+					if (typeof d.feed.entry == 'undefined') {
+						VMM.fireEvent(global, VMM.Timeline.Config.events.messege, "Error parsing spreadsheet. Make sure you have no blank rows and that the headers have not been changed.");
+					} else {
 						is_valid = true;
 						
 						for(var i = 0; i < d.feed.entry.length; i++) {
 							var dd		= d.feed.entry[i],
 								dd_type	= "";
-						
+
+							if (typeof(dd.gsx$startdate) == 'undefined') {
+								VMM.fireEvent(global, VMM.Timeline.Config.events.messege, "Missing start date. Make sure the headers of your Google Spreadsheet have not been changed.");
+								return;
+							}
+
 							if (typeof dd.gsx$type != 'undefined') {
 								dd_type = dd.gsx$type.$t;
 							} else if (typeof dd.gsx$titleslide != 'undefined') {
@@ -237,6 +263,10 @@ if (typeof VMM.Timeline !== 'undefined' && typeof VMM.Timeline.DataObj == 'undef
 							}
 						
 							if (dd_type.match("start") || dd_type.match("title") ) {
+								if (data_obj.timeline.startDate) {
+									VMM.fireEvent(global, VMM.Timeline.Config.events.messege, "Invalid data: Multiple 'title' slides. You should only have one row with 'title' in the 'type' column.");
+									return;
+								}
 								data_obj.timeline.startDate		= getGVar(dd.gsx$startdate);
 								data_obj.timeline.headline		= getGVar(dd.gsx$headline);
 								data_obj.timeline.asset.media	= getGVar(dd.gsx$media);
@@ -273,8 +303,6 @@ if (typeof VMM.Timeline !== 'undefined' && typeof VMM.Timeline.DataObj == 'undef
 							}
 						};
 						
-					} else {
-						
 					}
 					
 					
@@ -291,7 +319,7 @@ if (typeof VMM.Timeline !== 'undefined' && typeof VMM.Timeline.DataObj == 'undef
 				getDataCells: function(raw) {
 					var getjsondata, key, url, timeout, tries = 0;
 					
-					key	= VMM.Util.getUrlVars(raw)["key"];
+					key	= VMM.Timeline.DataObj.model.googlespreadsheet.extractSpreadsheetKey(raw);
 					url	= "https://spreadsheets.google.com/feeds/cells/" + key + "/od6/public/values?alt=json";
 					
 					timeout = setTimeout(function() {
@@ -334,7 +362,7 @@ if (typeof VMM.Timeline !== 'undefined' && typeof VMM.Timeline.DataObj == 'undef
 						k			= 0;
 					
 					VMM.fireEvent(global, VMM.Timeline.Config.events.messege, VMM.Language.messages.loading_timeline + " Parsing Google Doc Data (cells)");
-					
+
 					function getGVar(v) {
 						if (typeof v != 'undefined') {
 							return v.$t;
@@ -423,7 +451,6 @@ if (typeof VMM.Timeline !== 'undefined' && typeof VMM.Timeline.DataObj == 'undef
 
 						for(i = 0; i < list.length; i++) {
 							var date	= list[i];
-							
 							if (date.type.match("start") || date.type.match("title") ) {
 								data_obj.timeline.startDate		= date.startDate;
 								data_obj.timeline.headline		= date.headline;
@@ -442,37 +469,39 @@ if (typeof VMM.Timeline !== 'undefined' && typeof VMM.Timeline.DataObj == 'undef
 								}
 								data_obj.timeline.era.push(era);
 							} else {
-								var date = {
-										type:			"google spreadsheet",
-										startDate:		date.startDate,
-										endDate:		date.endDate,
-										headline:		date.headline,
-										text:			date.text,
-										tag:			date.tag,
-										asset: {
-											media:		date.media,
-											credit:		date.credit,
-											caption:	date.caption,
-											thumbnail:	date.thumbnail
-										}
-								};
-							
-								data_obj.timeline.date.push(date);
+								if (date.startDate) {
+
+									var date = {
+											type:			"google spreadsheet",
+											startDate:		date.startDate,
+											endDate:		date.endDate,
+											headline:		date.headline,
+											text:			date.text,
+											tag:			date.tag,
+											asset: {
+												media:		date.media,
+												credit:		date.credit,
+												caption:	date.caption,
+												thumbnail:	date.thumbnail
+											}
+									};
+								
+									data_obj.timeline.date.push(date);
+
+								} else {
+									trace("Skipping item " + i + " in list: no start date.")
+								}
 							}
 							
 						}
 						
-						//trace(cellnames);
-						//trace(max_row);
-						//trace(list);
-						
 					}
-					
+					is_valid = data_obj.timeline.date.length > 0;
 					if (is_valid) {
 						VMM.fireEvent(global, VMM.Timeline.Config.events.messege, "Finished Parsing Data");
 						VMM.fireEvent(global, VMM.Timeline.Config.events.data_ready, data_obj);
 					} else {
-						VMM.fireEvent(global, VMM.Timeline.Config.events.messege, "Unable to load Google Doc data source");
+						VMM.fireEvent(global, VMM.Timeline.Config.events.messege, "Unable to load Google Doc data source. Make sure you have no blank rows and that the headers have not been changed.");
 					}
 				}
 				
@@ -488,7 +517,7 @@ if (typeof VMM.Timeline !== 'undefined' && typeof VMM.Timeline.DataObj == 'undef
 					VMM.fireEvent(global, VMM.Timeline.Config.events.messege, "Loading Storify...");
 					
 					key	= raw.split("storify.com\/")[1];
-					url	= "http://api.storify.com/v1/stories/" + key + "?per_page=300&callback=?";
+					url	= "//api.storify.com/v1/stories/" + key + "?per_page=300&callback=?";
 					
 					storify_timeout = setTimeout(function() {
 						trace("STORIFY timeout");
@@ -575,7 +604,7 @@ if (typeof VMM.Timeline !== 'undefined' && typeof VMM.Timeline.DataObj == 'undef
 							
 							if (typeof dd.source.name != 'undefined') {
 								if (dd.source.name == "flickr") {
-									_date.asset.media		=	"http://flickr.com/photos/" + dd.meta.pathalias + "/" + dd.meta.id + "/";
+									_date.asset.media		=	"//flickr.com/photos/" + dd.meta.pathalias + "/" + dd.meta.id + "/";
 									_date.asset.credit		=	"<a href='" + _date.asset.media + "'>" + dd.attribution.name + "</a>";
 									_date.asset.credit		+=	" on <a href='" + dd.source.href + "'>" + dd.source.name + "</a>";
 								} else if (dd.source.name	==	"instagram") {
